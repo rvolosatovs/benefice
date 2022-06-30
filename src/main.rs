@@ -135,11 +135,7 @@ async fn root_post(mut multipart: Multipart) -> Result<impl IntoResponse, Status
     let mut wasm = None;
     let mut toml = None;
 
-    while let Some(mut field) = multipart
-        .next_field()
-        .await
-        .map_err(|_| StatusCode::BAD_REQUEST)?
-    {
+    while let Some(mut field) = multipart.next_field().await.unwrap() {
         match field.name() {
             Some("wasm") => {
                 if Some("application/wasm") != field.content_type() {
@@ -151,17 +147,15 @@ async fn root_post(mut multipart: Multipart) -> Result<impl IntoResponse, Status
                 }
 
                 let mut len = 0;
-                let mut out = tempfile::NamedTempFile::new()
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                let mut out = tempfile::NamedTempFile::new().unwrap();
 
-                while let Some(chunk) = field.chunk().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+                while let Some(chunk) = field.chunk().await.unwrap() {
                     len += chunk.len();
                     if len > WASM_MAX {
                         return Err(StatusCode::PAYLOAD_TOO_LARGE);
                     }
 
-                    out.write_all(&chunk)
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    out.write_all(&chunk).unwrap();
                 }
 
                 wasm = Some(out);
@@ -177,17 +171,15 @@ async fn root_post(mut multipart: Multipart) -> Result<impl IntoResponse, Status
                 }
 
                 let mut len = 0;
-                let mut out = tempfile::NamedTempFile::new()
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                let mut out = tempfile::NamedTempFile::new().unwrap();
 
-                while let Some(chunk) = field.chunk().await.map_err(|_| StatusCode::BAD_REQUEST)? {
+                while let Some(chunk) = field.chunk().await.unwrap() {
                     len += chunk.len();
                     if len > TOML_MAX {
                         return Err(StatusCode::PAYLOAD_TOO_LARGE);
                     }
 
-                    out.write_all(&chunk)
-                        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                    out.write_all(&chunk).unwrap();
                 }
 
                 toml = Some(out);
@@ -210,7 +202,7 @@ async fn root_post(mut multipart: Multipart) -> Result<impl IntoResponse, Status
         .stderr(Stdio::piped())
         .kill_on_drop(true)
         .spawn()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .unwrap();
 
     OUT.write()
         .await
