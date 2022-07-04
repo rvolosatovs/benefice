@@ -29,7 +29,7 @@ use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout};
 use tower_http::trace::TraceLayer;
-use tracing::error;
+use tracing::{error, trace};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use uuid::Uuid;
 
@@ -268,22 +268,34 @@ async fn root_post(
 }
 
 async fn uuid_get(Path(uuid): Path<String>) -> Result<impl IntoResponse, StatusCode> {
+    trace!(target = "uuid_get", "received `uuid_get` request {uuid}");
+
     let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
+    trace!(target = "uuid_get", "STARTING READ AWAIT...");
     OUT.read().await.get(&uuid).ok_or(StatusCode::NOT_FOUND)?;
+    trace!(target = "uuid_get", "AWAITED, RETURN");
     Ok(Html(include_str!("uuid_get.html")))
 }
 
 async fn uuid_out_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, StatusCode> {
+    trace!(
+        target = "uuid_out_post",
+        "received `uuid_out_post` request {uuid}"
+    );
+
     let mut buf = [0; 4096];
 
     let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
+    trace!(target = "uuid_out_post", "exec read await...");
     let exec = OUT
         .read()
         .await
         .get(&uuid)
         .ok_or(StatusCode::NOT_FOUND)?
         .clone();
+    trace!(target = "uuid_out_post", "exec read await done");
 
+    trace!(target = "uuid_out_post", "future exec await...");
     let future = async {
         exec.lock()
             .await
@@ -294,6 +306,7 @@ async fn uuid_out_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, St
             .read(&mut buf)
             .await
     };
+    trace!(target = "uuid_out_post", "future exec await done");
 
     match timeout(READ_TIMEOUT, future).await {
         Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -303,16 +316,24 @@ async fn uuid_out_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, St
 }
 
 async fn uuid_err_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, StatusCode> {
+    trace!(
+        target = "uuid_err_post",
+        "received `uuid_err_post` request {uuid}"
+    );
+
     let mut buf = [0; 4096];
 
     let uuid: Uuid = uuid.parse().map_err(|_| StatusCode::NOT_FOUND)?;
+    trace!(target = "uuid_err_post", "exec read await...");
     let exec = OUT
         .read()
         .await
         .get(&uuid)
         .ok_or(StatusCode::NOT_FOUND)?
         .clone();
+    trace!(target = "uuid_err_post", "exec read await done");
 
+    trace!(target = "uuid_err_post", "exec future await...");
     let future = async {
         exec.lock()
             .await
@@ -323,6 +344,7 @@ async fn uuid_err_post(Path(uuid): Path<String>) -> Result<impl IntoResponse, St
             .read(&mut buf)
             .await
     };
+    trace!(target = "uuid_err_post", "exec future await done");
 
     match timeout(READ_TIMEOUT, future).await {
         Ok(Err(..)) => Err(StatusCode::INTERNAL_SERVER_ERROR),
