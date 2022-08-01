@@ -44,57 +44,60 @@
             ];
           };
 
-          rust = fenix.packages.${system}.fromToolchainFile {
-            file = "${self}/rust-toolchain.toml";
-            sha256 = "sha256-Et8XFyXhlf5OyVqJkxrmkxv44NRN54uU2CLUTZKUjtM=";
-          };
-          craneLib = (crane.mkLib pkgs).overrideToolchain rust;
+          mkBin = pkgsTarget: args: let
+            target = with pkgsTarget.targetPlatform.parsed; "${cpu.name}-${vendor.name}-${kernel.name}-${abi.name}";
 
-          mkBin = {
-            CARGO_BUILD_RUSTFLAGS ? null,
-            CARGO_BUILD_TARGET ? null,
-            CARGO_PROFILE ? null,
-          } @ args:
-            craneLib.buildPackage ({
-                src =
-                  pkgs.nix-gitignore.gitignoreRecursiveSource [
-                    "*.lock"
-                    "!Cargo.lock"
+            rust = with fenix.packages.${system};
+              combine [
+                stable.rustc
+                stable.cargo
+                targets.${target}.stable.rust-std
+              ];
 
-                    "*.toml"
-                    "!Cargo.toml"
+            craneLib = (crane.mkLib pkgsTarget).overrideToolchain rust;
 
-                    "*.md"
-                    "*.nix"
-                    "/.github"
-                    "LICENSE"
-                  ]
-                  self;
+            src =
+              pkgs.nix-gitignore.gitignoreRecursiveSource [
+                "*.lock"
+                "!Cargo.lock"
+
+                "*.toml"
+                "!Cargo.toml"
+
+                "*.md"
+                "*.nix"
+                "/.github"
+                "LICENSE"
+              ]
+              self;
+          in
+            craneLib.buildPackage (
+              {
+                inherit src;
+
+                CARGO_BUILD_TARGET = target;
 
                 buildInputs = with pkgs; [
                   openssl
                 ];
-
+                depsBuildBuild = with pkgs; [
+                  stdenv.cc
+                ];
                 nativeBuildInputs = with pkgs; [
                   pkg-config
                 ];
               }
-              // (pkgs.lib.filterAttrs (n: v: v != null) args));
+              // nixpkgs.lib.optionalAttrs (pkgsTarget.targetPlatform.isStatic) {
+                CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+              }
+              // args
+            );
 
-          nativeBin = mkBin {};
-          x86_64LinuxMuslBin = mkBin {
-            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-            CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
-          };
+          nativeBin = mkBin pkgs {};
+          staticBin = mkBin pkgs.pkgsStatic {};
 
-          nativeDebugBin = mkBin {
-            CARGO_PROFILE = "";
-          };
-          x86_64LinuxMuslDebugBin = mkBin {
-            CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
-            CARGO_BUILD_TARGET = "x86_64-unknown-linux-musl";
-            CARGO_PROFILE = "";
-          };
+          nativeDebugBin = mkBin pkgs {CARGO_PROFILE = "";};
+          staticDebugBin = mkBin pkgs.pkgsStatic {CARGO_PROFILE = "";};
 
           cargo.toml = builtins.fromTOML (builtins.readFile "${self}/Cargo.toml");
 
@@ -103,17 +106,23 @@
               inherit (cargo.toml.package) name;
               tag = cargo.toml.package.version;
               copyToRoot = pkgs.buildEnv {
-                paths = bin;
+                name = "${cargo.toml.package.name}-env";
+                paths = [bin];
               };
               config.Cmd = [cargo.toml.package.name];
               config.Env = ["PATH=${bin}/bin"];
             };
 
+          devRust = fenix.packages.${system}.fromToolchainFile {
+            file = "${self}/rust-toolchain.toml";
+            sha256 = "sha256-Et8XFyXhlf5OyVqJkxrmkxv44NRN54uU2CLUTZKUjtM=";
+          };
           devShell = pkgs.mkShell {
             buildInputs = [
               pkgs.openssl
 
-              rust
+              devRust
+
               enarx.packages.${system}.enarx
             ];
 
@@ -127,12 +136,12 @@
           devShells.default = devShell;
 
           packages."${cargo.toml.package.name}" = nativeBin;
-          packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl" = x86_64LinuxMuslBin;
-          packages."${cargo.toml.package.name}-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslBin;
+          packages."${cargo.toml.package.name}-static" = staticBin;
+          packages."${cargo.toml.package.name}-static-oci" = buildImage staticBin;
 
           packages."${cargo.toml.package.name}-debug" = nativeDebugBin;
-          packages."${cargo.toml.package.name}-debug-x86_64-unknown-linux-musl" = x86_64LinuxMuslDebugBin;
-          packages."${cargo.toml.package.name}-debug-x86_64-unknown-linux-musl-oci" = buildImage x86_64LinuxMuslDebugBin;
+          packages."${cargo.toml.package.name}-debug-static" = staticDebugBin;
+          packages."${cargo.toml.package.name}-debug-static-oci" = buildImage staticDebugBin;
 
           packages.default = nativeBin;
         }
