@@ -54,7 +54,7 @@
                 targets.${target}.stable.rust-std
               ];
 
-            craneLib = (crane.mkLib pkgsTarget).overrideToolchain rust;
+            craneLib = (crane.mkLib pkgs).overrideToolchain rust;
 
             src =
               pkgs.nix-gitignore.gitignoreRecursiveSource [
@@ -77,11 +77,8 @@
 
                 CARGO_BUILD_TARGET = target;
 
-                buildInputs = with pkgs; [
+                buildInputs = with pkgsTarget; [
                   openssl
-                ];
-                depsBuildBuild = with pkgs; [
-                  stdenv.cc
                 ];
                 nativeBuildInputs = with pkgs; [
                   pkg-config
@@ -89,6 +86,10 @@
               }
               // nixpkgs.lib.optionalAttrs (pkgsTarget.targetPlatform.isStatic) {
                 CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static";
+
+                depsBuildBuild = with pkgsTarget; [
+                  stdenv.cc
+                ];
               }
               // args
             );
