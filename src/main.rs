@@ -140,19 +140,29 @@ struct Args {
     #[clap(long, default_value_t = 0)]
     listen_max: u16,
 
+    /// `enarx` command to execute.
+    /// This may also be an absolute path.
+    #[clap(long, default_value = "enarx")]
+    enarx_command: OsString,
+
+    /// `ip` command to execute.
+    /// This may also be an absolute path.
+    #[clap(long, default_value = "ip")]
+    ip_command: OsString,
+
+    /// `iptables` command to execute.
+    /// This may also be an absolute path.
+    #[clap(long, default_value = "iptables")]
+    iptables_command: OsString,
+
     /// `ss` command to execute, for example `ss`.
+    /// This may also be an absolute path.
     #[clap(long, default_value = "ss")]
     ss_command: OsString,
 
-    /// OCI container engine command to execute, for example, `docker` or `podman`.
-    /// This may also be an absolute path.
-    #[clap(long, default_value = "docker")]
-    oci_command: OsString,
-
-    /// OCI image to use.
-    /// Defaults to the last tested image from https://hub.docker.com/r/enarx/enarx
-    #[clap(long, default_value = "enarx/enarx:0.6.3")]
-    oci_image: String,
+    /// network device
+    #[clap(long)]
+    net_device: String,
 
     /// OpenID Connect issuer URL.
     #[clap(long, default_value = "https://auth.profian.com/")]
@@ -210,11 +220,13 @@ impl Args {
             } else {
                 Some(self.listen_max)
             },
+            enarx_command: self.enarx_command,
+            ip_command: self.ip_command,
+            iptables_command: self.iptables_command,
             ss_command: self.ss_command,
-            oci_command: self.oci_command,
-            oci_image: self.oci_image,
             runtime_dir: self.runtime_dir,
             devices: self.devices,
+            net_device: self.net_device,
         };
 
         (limits, oidc, other)
@@ -266,11 +278,13 @@ struct Other {
     jobs_max: usize,
     port_range: Range<u16>,
     listen_max: Option<u16>,
+    enarx_command: OsString,
+    ip_command: OsString,
+    iptables_command: OsString,
     ss_command: OsString,
-    oci_command: OsString,
-    oci_image: String,
     runtime_dir: PathBuf,
     devices: Vec<PathBuf>,
+    net_device: String,
 }
 
 async fn read_chunk(mut rdr: impl AsyncRead + Unpin) -> Result<Vec<u8>, StatusCode> {
@@ -319,6 +333,9 @@ async fn main() -> anyhow::Result<()> {
                 {
                     toml::Value::Table(kv) => kv.into_iter().try_for_each(|(k, v)| {
                         match v {
+                            toml::Value::Array(v) => {
+                                v.into_iter().for_each(|v| args.push(format!("--{k}={v}")))
+                            }
                             toml::Value::String(v) => args.push(format!("--{k}={v}")),
                             toml::Value::Integer(v) => args.push(format!("--{k}={v}")),
                             toml::Value::Float(v) => args.push(format!("--{k}={v}")),
@@ -374,11 +391,13 @@ async fn main() -> anyhow::Result<()> {
                         other.port_range,
                         other.listen_max,
                         other.jobs_max,
+                        other.enarx_command,
+                        other.ip_command,
+                        other.iptables_command,
                         other.ss_command,
-                        other.oci_command,
-                        other.oci_image,
                         other.runtime_dir,
                         other.devices,
+                        other.net_device,
                     )
                 })
                 .delete(root_delete),
@@ -486,11 +505,13 @@ async fn root_post(
     port_range: Range<u16>,
     listen_max: Option<u16>,
     jobs_max: usize,
+    enarx_command: impl AsRef<OsStr>,
+    ip_command: impl AsRef<OsStr>,
+    iptables_command: impl AsRef<OsStr>,
     ss_command: impl AsRef<OsStr>,
-    oci_command: OsString,
-    oci_image: impl AsRef<str>,
     runtime_dir: impl AsRef<Path>,
     devices: impl IntoIterator<Item = impl AsRef<OsStr>>,
+    net_device: String,
 ) -> impl IntoResponse {
     let user = match user {
         None => {
@@ -637,11 +658,13 @@ async fn root_post(
     let job = Job::spawn(
         id.clone(),
         workload,
+        ip_command,
+        iptables_command,
         ss_command,
-        oci_command,
-        oci_image.as_ref(),
+        enarx_command,
         port_range,
         ports,
+        net_device,
         devices,
         // Ensure job is killed after a timeout.
         async move {
